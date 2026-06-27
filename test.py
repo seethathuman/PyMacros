@@ -1,4 +1,6 @@
 from collections.abc import Callable
+
+# Additional types
 from pymacros import *
 
 ##define PI 3.14159
@@ -8,6 +10,7 @@ from pymacros import *
 ##define DEBUG_MODE True
 ##define STRING "Hello World"
 
+# These are for syntax highlighters, can be removed if needed
 PI: int = MacroDefined
 SQR: Callable[[int], int] = MacroDefined
 ADD: Callable[[int, int], int] = MacroDefined
