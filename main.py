@@ -38,7 +38,10 @@ class Preprocessor:
 
             if stripped.startswith("##endif"):
                 skip_if = False
-            continue
+                continue
+
+            if skip_if:
+                continue
 
             if stripped.startswith("##define"):
                 self.define(stripped)
@@ -136,13 +139,9 @@ class Preprocessor:
         i: int = 0
         tok: TokenInfo
 
+        if isinstance(toks, int): raise SyntaxError("invalid token")
         while i < len(toks):
             tok = toks[i]
-
-            if tok.type != token.NAME:
-                out.append(tok)
-                i += 1
-                continue
 
             macro = self.macros.get(tok.string)
 
@@ -233,7 +232,7 @@ def main():
                         "Output debugging information in the output file.")
     args = parser.parse_args()
 
-    OUTPUTDEBUG = args.output_debugging
+    OUTPUTDEBUG = not args.output_debugging
     VERBOSE = args.verbose
     INPUT = args.input
     OUTPUT = args.output
@@ -254,7 +253,7 @@ def main():
     if RUN:
         exec(expanded)
 
-    if not OUTPUT or RUN or PRINT:
+    if not (OUTPUT or RUN or PRINT):
         log(INFO, "No option was selected for proccessed output!")
 
 if __name__ == "__main__":
