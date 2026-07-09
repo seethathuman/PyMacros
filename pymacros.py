@@ -10,6 +10,25 @@ class MacroDefined_t(Any):
 
     `SQRT: Callable[[int], int] = MacroDefined`
     """
-    pass
+    def __init__(self, *args, **kwargs): pass
+
+class Uint_t(int):
+    """
+    Type for unsigned integers of size
+    """
+
+class Uint8_t(Uint_t):
+    """
+    Type for unsigned char
+    """
+    @staticmethod
+    def convert(num): return num % (1 << 8)
+
+class Uint16_t(Uint_t):
+    """
+    Type for unsigned word
+    """
+    @staticmethod
+    def convert(num): return num % (1 << 16)
 
 MacroDefined: MacroDefined_t = MacroDefined_t()

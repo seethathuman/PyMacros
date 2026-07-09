@@ -19,15 +19,26 @@ class FunctionMacro:
     replacement: list[TokenInfo]
 
 class Preprocessor:
-    def __init__(self):
+    def __init__(self, output_debug):
         self.macros: dict[str, ObjectMacro | FunctionMacro] = {}
+        self.typehints: dict[str, list[TokenInfo]] = {}
+        self.output_debug = output_debug
+        self.opened_files = []
 
     def process(self, source: str) -> str:
-        lines = source.splitlines(keepends=True)
+        lines = (source + "\n").splitlines(keepends=True)
         output = []
 
-        for line in lines:
+        skip_if = False
+        line_buffer = ""
+        for index, line in enumerate(lines):
             stripped = line.lstrip()
+            if self.output_debug:
+               output.append(F"#[{index}] {stripped}")
+
+            if stripped.startswith("##endif"):
+                skip_if = False
+            continue
 
             if stripped.startswith("##define"):
                 self.define(stripped)
@@ -38,9 +49,38 @@ class Preprocessor:
                 self.macros.pop(name, None)
                 continue
 
-            output.append(self.expand(line))
+            if stripped.startswith("##if"):
+                skip_if = not self.checkif(stripped)
+                continue
 
+            if stripped.startswith("##include"):
+                name = stripped.split()[1]
+                src = pathlib.Path(name).read_text(encoding="utf-8")
+                self.opened_files.append(pathlib.Path(src).resolve())
+                if not line_buffer:
+                    output.append(self.process(src))
+                else:
+                    line_buffer += (src)
+                continue
+
+            if (parsed := self.expand_string(line_buffer + line)) != -1:
+                output.append(parsed)
+                line_buffer = ""
+            else:
+                line_buffer += line
+
+        assert not line_buffer
         return "".join(output)
+
+    def checkif(self, line: str) -> bool:
+        text = line[len("##if"):].strip()
+        if text.startswith("def"):
+            return text[len("def"):].strip() in self.macros.keys()
+        if text.lower() in ["1","true"]:
+            return True
+        if text.lower() in ["0", "false", "null", "nil", "none"]:
+            return False
+        raise ValueError
 
     def define(self, line: str) -> None:
         text = line[len("##define"):].strip()
@@ -59,42 +99,39 @@ class Preprocessor:
 
     @staticmethod
     def tokenize(text: str) -> list[TokenInfo]:
-        return [
-            tok
-            for tok in tokenize.generate_tokens(io.StringIO(text).readline)
-            if tok.type != token.ENDMARKER
-        ]
+        try:
+            return [
+                tok
+                for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+                if tok.type != token.ENDMARKER
+            ]
+        except tokenize.TokenError:
+            return -1
 
     @staticmethod
     def untokenize(toks: list[TokenInfo]) -> str:
         return tokenize.untokenize(toks)
 
-    def expand(self, line: str) -> str:
-        tokens = [
-            tok
-            for tok in tokenize.generate_tokens(io.StringIO(line).readline)
-            if tok.type != token.ENDMARKER
-        ]
+    def expand_string(self, line: str) -> str | int:
+        tokens = self.tokenize(line)
+        if tokens == -1: return -1
+
         tokens = self.expand_tokens(tokens)
         out = []
         prev = None
 
         for t in tokens:
-            if t.type == token.ENDMARKER:
-                continue
-
+            if t.type == token.ENDMARKER: continue
             s = t.string
 
-            # add spacing between adjacent identifiers/numbers
             if prev in (token.NAME, token.NUMBER) and t.type in (token.NAME, token.NUMBER):
                 out.append(" ")
 
             out.append(s)
             prev = t.type
-
         return "".join(out)
 
-    def expand_tokens(self, toks: list[TokenInfo]):
+    def expand_tokens(self, toks: list[TokenInfo]) -> list[TokenInfo]:
         out: list[TokenInfo] = []
         i: int = 0
         tok: TokenInfo
@@ -127,23 +164,17 @@ class Preprocessor:
                 continue
 
             args, end = self.parse_args(toks, i + 1)
-
             mapping = {}
-
             for p, a in zip(macro.params, args):
                 mapping[p] = a
-
             repl = []
-
             for t in macro.replacement:
                 if t.type == token.NAME and t.string in mapping:
                     repl.extend(mapping[t.string])
                 else:
                     repl.append(t)
-
             out.extend(self.expand_tokens(repl))
             i = end + 1
-
         return out
 
     @staticmethod
@@ -198,8 +229,11 @@ def main():
                         "Print proccesed output to stdout")
     parser.add_argument("--verbose", "-v", dest="verbose", action="store_true", help=
                         "Print verbose output.")
+    parser.add_argument("--output-debugging", "-l", dest="output_debugging", action="store_true", help=
+                        "Output debugging information in the output file.")
     args = parser.parse_args()
 
+    OUTPUTDEBUG = args.output_debugging
     VERBOSE = args.verbose
     INPUT = args.input
     OUTPUT = args.output
@@ -209,7 +243,8 @@ def main():
     if not VERBOSE: disable(INFO)
 
     src = pathlib.Path(INPUT).read_text(encoding="utf-8")
-    pp = Preprocessor()
+    pp = Preprocessor(OUTPUTDEBUG)
+    pp.opened_files.append(pathlib.Path(INPUT).resolve())
     expanded = pp.process(src)
 
     if OUTPUT:
