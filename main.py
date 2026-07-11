@@ -3,8 +3,10 @@ import argparse
 import io
 import pathlib
 import re
+import sys
 import token
 import tokenize
+import importlib.util
 from logging import INFO, WARN, ERROR, log, disable
 from dataclasses import dataclass
 from tokenize import TokenInfo
@@ -23,7 +25,16 @@ class Preprocessor:
         self.macros: dict[str, ObjectMacro | FunctionMacro] = {}
         self.typehints: dict[str, list[TokenInfo]] = {}
         self.output_debug = output_debug
-        self.opened_files = []
+
+    @staticmethod
+    def read_file(name: str) -> str:
+        if pathlib.Path(name).exists():
+            return pathlib.Path(name).read_text("utf-8")
+        src = importlib.util.find_spec(name)
+        if not (src and src.has_location):
+            log(ERROR, f"Searching {','.join(sys.path)}")
+            raise FileNotFoundError(f"File {name} not found!")
+        return pathlib.Path(src.origin).read_text("utf-8")
 
     def process(self, source: str) -> str:
         lines = (source + "\n").splitlines(keepends=True)
@@ -40,8 +51,16 @@ class Preprocessor:
                 skip_if = False
                 continue
 
+            if stripped.startswith("##else"):
+                skip_if = not skip_if
+                continue
+
             if skip_if:
                 continue
+
+            if stripped.startswith("##BREAKPOINT"):
+                # breakpoint for debugging
+                continue # set a breakpoint here with debugger
 
             if stripped.startswith("##define"):
                 self.define(stripped)
@@ -58,13 +77,16 @@ class Preprocessor:
 
             if stripped.startswith("##include"):
                 name = stripped.split()[1]
-                src = pathlib.Path(name).read_text(encoding="utf-8")
-                self.opened_files.append(pathlib.Path(src).resolve())
+                src = self.read_file(name)
                 if not line_buffer:
                     output.append(self.process(src))
                 else:
-                    line_buffer += (src)
+                    line_buffer += src
                 continue
+
+            if stripped.startswith("##"):
+                # https://peps.python.org/pep-0008/#block-comments
+                log(WARN, f"Block comment starting with ##")
 
             if (parsed := self.expand_string(line_buffer + line)) != -1:
                 output.append(parsed)
@@ -76,14 +98,18 @@ class Preprocessor:
         return "".join(output)
 
     def checkif(self, line: str) -> bool:
-        text = line[len("##if"):].strip()
+        text: str = line[len("##if"):].strip()
+        reverse: bool = False
+        if text.startswith("n"):
+            reverse = True
+            text = text[1:]
         if text.startswith("def"):
-            return text[len("def"):].strip() in self.macros.keys()
+            return (text[len("def"):].strip() in self.macros.keys()) ^ reverse
         if text.lower() in ["1","true"]:
-            return True
+            return True ^ reverse
         if text.lower() in ["0", "false", "null", "nil", "none"]:
-            return False
-        raise ValueError
+            return False ^ reverse
+        raise ValueError("Invalid condition for ##if")
 
     def define(self, line: str) -> None:
         text = line[len("##define"):].strip()
@@ -221,15 +247,17 @@ def main():
     parser.add_argument("input", help=
                         "Source file.")
     parser.add_argument("--run", "-r", dest="run", action="store_true", help=
-                        "Execute after proccessing.")
+                        "Execute after compiling.")
     parser.add_argument("--output", "-o", dest="output", default="", help=
                         "Place the output into file.")
+    parser.add_argument("--search", "-B", dest="extra_paths", action="append", help=
+                        "Add <directory> to compiler's search paths.")
     parser.add_argument("--print", "-p", dest="print", action="store_true", help=
-                        "Print proccesed output to stdout")
+                        "Display compiled output.")
     parser.add_argument("--verbose", "-v", dest="verbose", action="store_true", help=
-                        "Print verbose output.")
+                        "Display verbose compilation output.")
     parser.add_argument("--output-debugging", "-l", dest="output_debugging", action="store_true", help=
-                        "Output debugging information in the output file.")
+                        "Output debugging information in the compiled file.")
     args = parser.parse_args()
 
     OUTPUTDEBUG = not args.output_debugging
@@ -238,12 +266,13 @@ def main():
     OUTPUT = args.output
     RUN = args.run
     PRINT = args.print
+    EXTRA_PATHS = args.extra_paths or []
 
+    sys.path.extend(EXTRA_PATHS)
     if not VERBOSE: disable(INFO)
 
-    src = pathlib.Path(INPUT).read_text(encoding="utf-8")
     pp = Preprocessor(OUTPUTDEBUG)
-    pp.opened_files.append(pathlib.Path(INPUT).resolve())
+    src = pp.read_file(INPUT)
     expanded = pp.process(src)
 
     if OUTPUT:
@@ -255,6 +284,7 @@ def main():
 
     if not (OUTPUT or RUN or PRINT):
         log(INFO, "No option was selected for proccessed output!")
+
 
 if __name__ == "__main__":
     main()

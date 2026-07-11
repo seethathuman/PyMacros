@@ -1,11 +1,16 @@
+from pymacros.ensure_pm import PYMACROS
+##include pymacros.ensure_pm
 
-assert (
-    ##include ensure_pm.py
-), "Compile this file with pymacros!"
+##ifdef PYMACROS
+##include pymacros.builtin
+##else
+from pymacros.types import *
+##endif
+
+assert PYMACROS, "Compile this file with pymacros!"
 
 ##ifdef 0
 from collections.abc import Callable
-from pymacros import *
 PI: int = MacroDefined
 SQR: Callable[[int], int] = MacroDefined
 ADD: Callable[[int, int], int] = MacroDefined

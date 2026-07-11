@@ -1,5 +1,4 @@
 from typing import Any
-
 class MacroDefined_t(Any):
     """
     Type indicating a value defined by a macro.
