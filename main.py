@@ -3,6 +3,7 @@ import argparse
 import io
 import pathlib
 import re
+import subprocess
 import sys
 import token
 import tokenize
@@ -27,20 +28,20 @@ class Preprocessor:
         self.output_debug = output_debug
 
     @staticmethod
-    def read_file(name: str) -> str:
+    def find_import(name: str) -> pathlib.Path:
         if pathlib.Path(name).exists():
-            return pathlib.Path(name).read_text("utf-8")
+            return pathlib.Path(name)
         src = importlib.util.find_spec(name)
         if not (src and src.has_location):
             log(ERROR, f"Searching {','.join(sys.path)}")
             raise FileNotFoundError(f"File {name} not found!")
-        return pathlib.Path(src.origin).read_text("utf-8")
+        return pathlib.Path(src.origin)
 
     def process(self, source: str) -> str:
         lines = (source + "\n").splitlines(keepends=True)
         output = []
 
-        skip_if = False
+        skip_if = [False]
         line_buffer = ""
         for index, line in enumerate(lines):
             stripped = line.lstrip()
@@ -48,14 +49,14 @@ class Preprocessor:
                output.append(F"#[{index}] {stripped}")
 
             if stripped.startswith("##endif"):
-                skip_if = False
+                skip_if.pop()
                 continue
 
             if stripped.startswith("##else"):
-                skip_if = not skip_if
+                skip_if.append(not skip_if.pop())
                 continue
 
-            if skip_if:
+            if skip_if[-1]:
                 continue
 
             if stripped.startswith("##BREAKPOINT"):
@@ -72,24 +73,34 @@ class Preprocessor:
                 continue
 
             if stripped.startswith("##if"):
-                skip_if = not self.checkif(stripped)
+                skip_if.append(not self.checkif(stripped))
                 continue
 
             if stripped.startswith("##include"):
                 name = stripped.split()[1]
-                src = self.read_file(name)
+                src = self.find_import(name).read_text("utf-8")
                 if not line_buffer:
                     output.append(self.process(src))
                 else:
                     line_buffer += src
                 continue
 
+            if stripped.startswith("##import"):
+                name = stripped.split()[1]
+                src = self.find_import(name)
+                pp = Preprocessor(self.output_debug)
+                out = pp.process(src.read_text("utf-8"))
+                src.with_stem(src.stem + "_").write_text(out, encoding="utf-8")
+                output.append(f"import {name}_\n")
+                continue
+
             if stripped.startswith("##"):
                 # https://peps.python.org/pep-0008/#block-comments
-                log(WARN, f"Block comment starting with ##")
+                log(WARN, f"Block comment starting with ##: {stripped}")
 
             if (parsed := self.expand_string(line_buffer + line)) != -1:
-                output.append(parsed)
+                if parsed.strip():
+                    output.append(parsed)
                 line_buffer = ""
             else:
                 line_buffer += line
@@ -263,7 +274,7 @@ def main():
     OUTPUTDEBUG = not args.output_debugging
     VERBOSE = args.verbose
     INPUT = args.input
-    OUTPUT = args.output
+    OUTPUT = args.output or pathlib.Path(INPUT).with_stem(pathlib.Path(INPUT).stem + "_")
     RUN = args.run
     PRINT = args.print
     EXTRA_PATHS = args.extra_paths or []
@@ -271,8 +282,10 @@ def main():
     sys.path.extend(EXTRA_PATHS)
     if not VERBOSE: disable(INFO)
 
+    sys.path.extend([str(pathlib.Path(INPUT).parent), str(pathlib.Path(OUTPUT).parent)])
+
     pp = Preprocessor(OUTPUTDEBUG)
-    src = pp.read_file(INPUT)
+    src = pp.find_import(INPUT).read_text("utf-8")
     expanded = pp.process(src)
 
     if OUTPUT:
@@ -280,7 +293,7 @@ def main():
     if PRINT:
         print(expanded)
     if RUN:
-        exec(expanded)
+        subprocess.run([sys.executable, OUTPUT])
 
     if not (OUTPUT or RUN or PRINT):
         log(INFO, "No option was selected for proccessed output!")

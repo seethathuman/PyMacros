@@ -9,7 +9,6 @@ class MacroDefined_t(Any):
 
     `SQRT: Callable[[int], int] = MacroDefined`
     """
-    def __init__(self, *args, **kwargs): pass
 
 class Uint_t(int):
     """
