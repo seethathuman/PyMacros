@@ -13,18 +13,17 @@ from dataclasses import dataclass
 from tokenize import TokenInfo
 
 @dataclass
-class ObjectMacro:
-    replacement: list[str]
+class ObjectMacro(slots = True):
+    replacement: list[TokenInfo]
 
 @dataclass
-class FunctionMacro:
+class FunctionMacro(slots = True):
     params: list[str]
     replacement: list[TokenInfo]
 
 class Preprocessor:
     def __init__(self, output_debug):
         self.macros: dict[str, ObjectMacro | FunctionMacro] = {}
-        self.typehints: dict[str, list[TokenInfo]] = {}
         self.output_debug = output_debug
 
     @staticmethod
@@ -98,7 +97,7 @@ class Preprocessor:
                 # https://peps.python.org/pep-0008/#block-comments
                 log(WARN, f"Block comment starting with ##: {stripped}")
 
-            if (parsed := self.expand_string(line_buffer + line)) != -1:
+            if parsed := self.expand_string(line_buffer + line):
                 if parsed.strip():
                     output.append(parsed)
                 line_buffer = ""
@@ -138,7 +137,7 @@ class Preprocessor:
         self.macros[name] = ObjectMacro(self.tokenize(repl))
 
     @staticmethod
-    def tokenize(text: str) -> list[TokenInfo]:
+    def tokenize(text: str) -> list[TokenInfo] | None:
         try:
             return [
                 tok
@@ -146,7 +145,7 @@ class Preprocessor:
                 if tok.type != token.ENDMARKER
             ]
         except tokenize.TokenError:
-            return -1
+            return None
 
     @staticmethod
     def untokenize(toks: list[TokenInfo]) -> str:
@@ -154,7 +153,7 @@ class Preprocessor:
 
     def expand_string(self, line: str) -> str | int:
         tokens = self.tokenize(line)
-        if tokens == -1: return -1
+        if not tokens: return None
 
         tokens = self.expand_tokens(tokens)
         out = []
@@ -251,7 +250,7 @@ class Preprocessor:
 def main():
     parser = argparse.ArgumentParser(
         prog="PyMacro",
-        description="Preproccesser for python",
+        description="Preprocesser for python",
         epilog="example: ./main.py file.py -r -o newfile.py"
     )
 
@@ -296,7 +295,7 @@ def main():
         subprocess.run([sys.executable, OUTPUT])
 
     if not (OUTPUT or RUN or PRINT):
-        log(INFO, "No option was selected for proccessed output!")
+        log(INFO, "No option was selected for processed output!")
 
 
 if __name__ == "__main__":
