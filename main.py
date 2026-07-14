@@ -12,12 +12,12 @@ from logging import INFO, WARN, ERROR, log, disable
 from dataclasses import dataclass
 from tokenize import TokenInfo
 
-@dataclass
-class ObjectMacro(slots = True):
+@dataclass(slots = True)
+class ObjectMacro:
     replacement: list[TokenInfo]
 
-@dataclass
-class FunctionMacro(slots = True):
+@dataclass(slots = True)
+class FunctionMacro:
     params: list[str]
     replacement: list[TokenInfo]
 
